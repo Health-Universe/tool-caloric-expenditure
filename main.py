@@ -275,7 +275,3 @@ def predict_time_series(
         predicted_weight=predicted_weight,
         recommendations=recommendations
     )
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app)
