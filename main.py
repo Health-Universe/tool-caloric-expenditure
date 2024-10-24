@@ -1,43 +1,12 @@
-from fastapi import FastAPI, Form
-from pydantic import BaseModel
-from enum import Enum
-from typing import List
+from typing import Annotated, Literal, List
+
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 import random
 
-
-class BiologicalSexEnum(str, Enum):
-    male = "male"
-    female = "female"
-
-
-class ActivityLevelEnum(str, Enum):
-    sedentary = "sedentary"
-    lightly_active = "lightly_active"
-    moderately_active = "moderately_active"
-    very_active = "very_active"
-    extra_active = "extra_active"
-
-
-class PredictiveData(BaseModel):
-    bmr: float
-    daily_caloric_needs: float
-    recommendations: str
-
-
-class TimeSeriesDataPoint(BaseModel):
-    week: int
-    weight: float
-
-
-class TimeSeriesPredictiveData(BaseModel):
-    initial_weight: float
-    predicted_weight: List[TimeSeriesDataPoint]
-    recommendations: str
-
-
 app = FastAPI(
-    title="Caloric Expenditure API",
+    title="Caloric Expenditure Tool",
     description="API for calculating Basal Metabolic Rate (BMR) and Daily Caloric Needs based on user inputs.",
     version="1.0.0",
 )
@@ -51,32 +20,131 @@ app.add_middleware(
 )
 
 
+class PredictiveDataInput(BaseModel):
+    """
+    Form-based input schema for calculating Basal Metabolic Rate (BMR) and Daily Caloric Needs.
+    """
+
+    unit_system: Literal["metric", "imperial"] = Field(
+        default="metric",
+        title="Unit System",
+        examples=["metric"],
+        description="Select your measurement system.",
+    )
+    age: int = Field(
+        title="Age",
+        ge=1,
+        le=150,
+        examples=[30],
+        description="Enter your age in years. Must be a value between 1 and 150.",
+    )
+    weight: float = Field(
+        title="Weight",
+        ge=1.0,
+        examples=[70.0],
+        description="Enter your weight in kilograms (metric) or pounds (imperial). Must be a positive value.",
+    )
+    height: float = Field(
+        title="Height",
+        ge=1.0,
+        examples=[175.0],
+        description="Enter your height in centimeters (metric) or inches (imperial). Must be a positive value.",
+    )
+    biological_sex: Literal["male", "female"] = Field(
+        title="Biological Sex",
+        examples=["male"],
+        description="Select your biological sex.",
+    )
+    activity_level: Literal[
+        "sedentary", "lightly_active", "moderately_active", "very_active", "extra_active"
+    ] = Field(
+        title="Activity Level",
+        examples=["moderately_active"],
+        description=(
+            "Select your activity level.\n\n"
+            "- **Sedentary**: Little to no exercise\n"
+            "- **Lightly Active**: Light exercise (1-3 days per week)\n"
+            "- **Moderately Active**: Moderate exercise (3–5 days per week)\n"
+            "- **Very Active**: Heavy exercise (6–7 days per week)\n"
+            "- **Extra Active**: Very heavy exercise (twice per day, extra heavy workouts)"
+        ),
+    )
+
+
+class PredictiveData(BaseModel):
+    """
+    Form-based output schema for BMR and Daily Caloric Needs.
+    """
+
+    bmr: float = Field(
+        title="Basal Metabolic Rate (BMR) in kcal/day",
+        examples=[1984.0],
+        description="Your calculated Basal Metabolic Rate (BMR) in kilocalories per day.",
+        format="display",
+    )
+    daily_caloric_needs: float = Field(
+        title="Daily Caloric Needs in kcal/day",
+        examples=[2380.0],
+        description="Your calculated Daily Caloric Needs based on your activity level, in kilocalories per day.",
+        format="display",
+    )
+    recommendations: str = Field(
+        title="Recommendations",
+        examples=["Your daily caloric needs are within the average range. Maintain a balanced diet."],
+        description="Personalized recommendations based on your daily caloric needs.",
+        format="display",
+    )
+
+
 @app.post("/predict", response_model=PredictiveData, summary="Calculate BMR and Daily Caloric Needs")
-async def predict_calories(
-        age: int = Form(..., gt=0, description="Age of the user in years"),
-        biological_sex: BiologicalSexEnum = Form(..., description="Biological sex of the user"),
-        weight: float = Form(..., gt=0, description="Weight of the user in kilograms"),
-        height: float = Form(..., gt=0, description="Height of the user in centimeters"),
-        activity_level: ActivityLevelEnum = Form(..., description="User's activity level")
+def predict_calories(
+        data: Annotated[PredictiveDataInput, Form()],
 ):
     """
     Calculate Basal Metabolic Rate (BMR) and Daily Caloric Needs based on user input.
     """
-    # Mifflin-St Jeor Equation for BMR
-    if biological_sex == BiologicalSexEnum.male:
-        bmr = 10 * weight + 6.25 * height - 5 * age + 5
-    else:
-        bmr = 10 * weight + 6.25 * height - 5 * age - 161
-
-    activity_multipliers = {
-        ActivityLevelEnum.sedentary: 1.2,
-        ActivityLevelEnum.lightly_active: 1.375,
-        ActivityLevelEnum.moderately_active: 1.55,
-        ActivityLevelEnum.very_active: 1.725,
-        ActivityLevelEnum.extra_active: 1.9,
+    # Unit conversion factors
+    conversion_factors = {
+        "metric": {"weight": 1.0, "height": 1.0},
+        "imperial": {"weight": 0.453592, "height": 2.54},
     }
 
-    multiplier = activity_multipliers.get(activity_level, 1.2)
+    unit = data.unit_system.lower()
+    if unit not in conversion_factors:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid unit system. Must be 'metric' or 'imperial'.",
+        )
+
+    factors = conversion_factors[unit]
+    weight_in_kg = data.weight * factors["weight"]
+    height_in_cm = data.height * factors["height"]
+
+    # Original Harris-Benedict Equation for BMR
+    if data.biological_sex == "male":
+        bmr = (
+            66.473
+            + (13.7516 * weight_in_kg)
+            + (5.0033 * height_in_cm)
+            - (6.7550 * data.age)
+        )
+    else:
+        bmr = (
+            655.0955
+            + (9.5634 * weight_in_kg)
+            + (1.8496 * height_in_cm)
+            - (4.6756 * data.age)
+        )
+
+    activity_multipliers = {
+        "sedentary": 1.2,
+        "lightly_active": 1.375,
+        "moderately_active": 1.55,
+        "very_active": 1.725,
+        "extra_active": 1.9,
+    }
+
+    multiplier = activity_multipliers.get(data.activity_level, 1.2)
     daily_caloric_needs = bmr * multiplier
 
     if daily_caloric_needs < 1500:
@@ -93,24 +161,108 @@ async def predict_calories(
     )
 
 
+class TimeSeriesPredictiveDataInput(BaseModel):
+    """
+    Form-based input schema for predicting weight over time.
+    """
+
+    unit_system: Literal["metric", "imperial"] = Field(
+        default="metric",
+        title="Unit System",
+        examples=["metric"],
+        description="Select your measurement system.",
+    )
+    initial_weight: float = Field(
+        title="Initial Weight",
+        ge=1.0,
+        examples=[70.0],
+        description="Enter your initial weight in kilograms (metric) or pounds (imperial). Must be a positive value.",
+    )
+    weight_change_per_week: float = Field(
+        title="Weight Change per Week",
+        examples=[0.5],
+        description="Projected weight change per week in kilograms (metric) or pounds (imperial).",
+    )
+
+
+class TimeSeriesDataPoint(BaseModel):
+    """
+    Data point representing weight at a specific week.
+    """
+    week: int = Field(
+        title="Week",
+        examples=[1],
+        description="Week number.",
+        format="display",
+    )
+    weight: float = Field(
+        title="Weight",
+        examples=[69.5],
+        description="Predicted weight in kilograms or pounds at the given week.",
+        format="display",
+    )
+
+
+class TimeSeriesPredictiveData(BaseModel):
+    """
+    Form-based output schema for predicted weight over time.
+    """
+
+    initial_weight: float = Field(
+        title="Initial Weight",
+        examples=[70.0],
+        description="Your initial weight in kilograms or pounds.",
+        format="display",
+    )
+    predicted_weight: List[TimeSeriesDataPoint] = Field(
+        title="Predicted Weight Over Time",
+        description="List of predicted weights over the 12-week period.",
+        format="display",
+    )
+    recommendations: str = Field(
+        title="Recommendations",
+        examples=["Your projected weight loss is healthy. Maintain your current plan."],
+        description="Personalized recommendations based on your projected weight change.",
+        format="display",
+    )
+
+
 @app.post("/predict-time-series", response_model=TimeSeriesPredictiveData, summary="Predict Weight Over Time")
-async def predict_time_series(
-        initial_weight: float = Form(..., gt=0, description="Initial weight of the user in kilograms"),
-        weight_change_per_week: float = Form(..., description="Projected weight change per week in kilograms")
+def predict_time_series(
+        data: Annotated[TimeSeriesPredictiveDataInput, Form()],
 ):
     """
     Predict weight progression over a 12-week period based on user inputs.
     """
+    # Unit conversion factors
+    conversion_factors = {
+        "metric": {"weight": 1.0},
+        "imperial": {"weight": 0.453592},
+    }
+
+    unit = data.unit_system.lower()
+    if unit not in conversion_factors:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid unit system. Must be 'metric' or 'imperial'.",
+        )
+
+    factor = conversion_factors[unit]["weight"]
+    initial_weight_kg = data.initial_weight * factor
+    weight_change_per_week_kg = data.weight_change_per_week * factor
+
     predicted_weight = []
-    current_weight = initial_weight
+    current_weight = initial_weight_kg
 
     for week in range(1, 13):
         variation = random.uniform(-0.1, 0.1)
-        current_weight -= weight_change_per_week
+        current_weight -= weight_change_per_week_kg
         current_weight = round(current_weight + variation, 2)
-        predicted_weight.append(TimeSeriesDataPoint(week=week, weight=current_weight))
+        # Convert back to original unit system for output
+        current_weight_output = current_weight / factor
+        predicted_weight.append(TimeSeriesDataPoint(week=week, weight=round(current_weight_output, 2)))
 
-    total_weight_change = weight_change_per_week * 12
+    total_weight_change = data.weight_change_per_week * 12
     if total_weight_change > 10:
         recommendations = "Your projected weight loss is significant. Consider consulting a healthcare professional."
     elif 5 <= total_weight_change <= 10:
@@ -119,7 +271,11 @@ async def predict_time_series(
         recommendations = "Your projected weight loss is minimal. You might want to adjust your caloric intake or activity level."
 
     return TimeSeriesPredictiveData(
-        initial_weight=initial_weight,
+        initial_weight=data.initial_weight,
         predicted_weight=predicted_weight,
         recommendations=recommendations
     )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app)
