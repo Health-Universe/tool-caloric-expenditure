@@ -213,14 +213,13 @@ class TimeSeriesPredictiveData(BaseModel):
         description="Personalized recommendations based on your projected weight change.",
     )
 
-    class Config:
-        json_schema_extra = {
-            "x-chart-type": "line_chart",
-            "description": "Data should be rendered as a chart."
-        }
 
-
-@app.post("/predict-time-series", response_model=TimeSeriesPredictiveData, summary="Predict Weight Over Time")
+@app.post(
+    "/predict-time-series",
+    response_model=TimeSeriesPredictiveData,
+    summary="Predict Weight Over Time",
+    openapi_extra={"x-chart-type": "line_chart"}
+)
 def predict_time_series(
         data: Annotated[TimeSeriesPredictiveDataInput, Form()],
 ):
