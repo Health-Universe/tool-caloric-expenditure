@@ -80,19 +80,16 @@ class PredictiveData(BaseModel):
         title="Basal Metabolic Rate (BMR) in kcal/day",
         examples=[1984.0],
         description="Your calculated Basal Metabolic Rate (BMR) in kilocalories per day.",
-        format="display",
     )
     daily_caloric_needs: float = Field(
         title="Daily Caloric Needs in kcal/day",
         examples=[2380.0],
         description="Your calculated Daily Caloric Needs based on your activity level, in kilocalories per day.",
-        format="display",
     )
     recommendations: str = Field(
         title="Recommendations",
         examples=["Your daily caloric needs are within the average range. Maintain a balanced diet."],
         description="Personalized recommendations based on your daily caloric needs.",
-        format="display",
     )
 
 
@@ -193,13 +190,11 @@ class TimeSeriesDataPoint(BaseModel):
         title="Week",
         examples=[1],
         description="Week number.",
-        format="display",
     )
     weight: float = Field(
         title="Weight",
         examples=[69.5],
         description="Predicted weight in kilograms or pounds at the given week.",
-        format="display",
     )
 
 
@@ -208,23 +203,21 @@ class TimeSeriesPredictiveData(BaseModel):
     Form-based output schema for predicted weight over time.
     """
 
-    initial_weight: float = Field(
-        title="Initial Weight",
-        examples=[70.0],
-        description="Your initial weight in kilograms or pounds.",
-        format="display",
-    )
     predicted_weight: List[TimeSeriesDataPoint] = Field(
         title="Predicted Weight Over Time",
         description="List of predicted weights over the 12-week period.",
-        format="display",
     )
     recommendations: str = Field(
         title="Recommendations",
         examples=["Your projected weight loss is healthy. Maintain your current plan."],
         description="Personalized recommendations based on your projected weight change.",
-        format="display",
     )
+
+    class Config:
+        json_schema_extra = {
+            "x-chart-type": "line_chart",
+            "description": "Data should be rendered as a chart."
+        }
 
 
 @app.post("/predict-time-series", response_model=TimeSeriesPredictiveData, summary="Predict Weight Over Time")
@@ -251,7 +244,8 @@ def predict_time_series(
     initial_weight_kg = data.initial_weight * factor
     weight_change_per_week_kg = data.weight_change_per_week * factor
 
-    predicted_weight = []
+    # Start with initial weight as the first data point (week=0)
+    predicted_weight = [TimeSeriesDataPoint(week=0, weight=data.initial_weight)]
     current_weight = initial_weight_kg
 
     for week in range(1, 13):
@@ -271,7 +265,6 @@ def predict_time_series(
         recommendations = "Your projected weight loss is minimal. You might want to adjust your caloric intake or activity level."
 
     return TimeSeriesPredictiveData(
-        initial_weight=data.initial_weight,
         predicted_weight=predicted_weight,
         recommendations=recommendations
     )
