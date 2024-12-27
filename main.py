@@ -76,7 +76,7 @@ class PredictiveData(BaseModel):
     Form-based output schema for BMR and Daily Caloric Needs.
     """
 
-    bmr: float = Field(
+    basal_metabolic_rate: float = Field(
         title="Basal Metabolic Rate (BMR) in kcal/day",
         examples=[1984.0],
         description="Your calculated Basal Metabolic Rate (BMR) in kilocalories per day.",
@@ -119,14 +119,14 @@ def predict_calories(
 
     # Original Harris-Benedict Equation for BMR
     if data.biological_sex == "male":
-        bmr = (
+        basal_metabolic_rate = (
             66.473
             + (13.7516 * weight_in_kg)
             + (5.0033 * height_in_cm)
             - (6.7550 * data.age)
         )
     else:
-        bmr = (
+        basal_metabolic_rate = (
             655.0955
             + (9.5634 * weight_in_kg)
             + (1.8496 * height_in_cm)
@@ -142,7 +142,7 @@ def predict_calories(
     }
 
     multiplier = activity_multipliers.get(data.activity_level, 1.2)
-    daily_caloric_needs = bmr * multiplier
+    daily_caloric_needs = basal_metabolic_rate * multiplier
 
     if daily_caloric_needs < 1500:
         recommendations = "Your daily caloric needs are relatively low. Ensure you're getting enough nutrients."
@@ -152,7 +152,7 @@ def predict_calories(
         recommendations = "Your daily caloric needs are high. Consider consulting a nutritionist for personalized advice."
 
     return PredictiveData(
-        bmr=round(bmr, 2),
+        basal_metabolic_rate=round(basal_metabolic_rate, 2),
         daily_caloric_needs=round(daily_caloric_needs, 2),
         recommendations=recommendations
     )
